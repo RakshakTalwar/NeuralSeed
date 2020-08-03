@@ -4,13 +4,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torch.optim.optimizer import Optimizer
 
 from coffee_n_sugar import CoffeeNSugar
 
 
-# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-device = 'cpu'
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 cns = CoffeeNSugar()
 dataloader = DataLoader(cns, batch_size=32, shuffle=True, num_workers=12)
 
@@ -23,15 +22,15 @@ class M(nn.Module):
 
         self.num_neurons_per_layer = 16
 
-        self.input_layer = nn.Linear(4, self.num_neurons_per_layer, bias=True)
-        self.output_layer = nn.Linear(self.num_neurons_per_layer, 4, bias=True)  # linear output
+        self.input_layer = nn.Linear(4, self.num_neurons_per_layer, bias=True).to(device)
+        self.output_layer = nn.Linear(self.num_neurons_per_layer, 4, bias=True).to(device)  # linear output
 
         self.num_hidden_layers = 1  # default, start small
 
         self.h = []  # will hold all hidden layers
         for _ in range(self.num_hidden_layers):
             self.h.append(
-                self.BaseLayer(self.num_neurons_per_layer, self.num_neurons_per_layer)
+                self.BaseLayer(self.num_neurons_per_layer, self.num_neurons_per_layer).to(device)
             )
 
     def forward(self, x):
@@ -74,14 +73,15 @@ for t in range(epochs):  # epochs
         y_pred = model(x)
 
         loss = loss_function(y_pred, y)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
 
         if iter_num_ctr % 100 == 0:
             print(f"Epoch {t}/{epochs} Iteration {batch_idx}")
-            print(f"MSE\t{loss.item()}")
+            print(f"MSE\t{loss.cpu().item()}")
             print()
         iter_num_ctr += 1
 
-        loss.backward()
 
-        optimizer.step()
-        optimizer.zero_grad()
+
