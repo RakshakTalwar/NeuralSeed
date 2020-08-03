@@ -1,5 +1,6 @@
 from typing import Optional, Union, Sequence, Dict, Tuple, List
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -62,7 +63,7 @@ iter_num_ctr = 0
 for t in range(epochs):  # epochs
     # put model in train mode
     model = model.train()
-    loss_train = None
+    losses_train = []
     for batch_idx, batch in enumerate(dataloader_train):
         x, y = batch
         x = x.to(device)
@@ -76,9 +77,12 @@ for t in range(epochs):  # epochs
         loss_train.backward()
         optimizer.step()
 
+        losses_train.append(loss_train.cpu().item())
+
+
     # put model in evaluation mode (no updates to network)
     model = model.eval()
-    loss_val = None
+    losses_val = []
     for batch_idx, batch in enumerate(dataloader_val):
         x, y = batch
         x = x.to(device)
@@ -88,7 +92,9 @@ for t in range(epochs):  # epochs
 
         loss_val = loss_function(y_pred, y)
 
+        losses_val.append(loss_val.cpu().item())
+
     # End of epoch reporting
     print(f"Epoch {t}/{epochs}")
-    print(f"Loss (MSE)\t\tTrain\t{loss_train.cpu().item()}\t\tVal\t{loss_val.cpu().item()}")
+    print(f"Loss (MSE)\t\tTrain\t{np.mean(losses_train)}\t\tVal\t{np.mean(losses_val)}")
     print()
