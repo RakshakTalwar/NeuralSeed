@@ -10,11 +10,12 @@ from coffee_n_sugar import CoffeeNSugar
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-cns = CoffeeNSugar()
-dataloader = DataLoader(cns, batch_size=32, shuffle=True, num_workers=12)
+cns_train, cns_val = CoffeeNSugar(split='train', train_fraction=.7), CoffeeNSugar(split='val', train_fraction=.7)
+dataloader_train = DataLoader(cns_train, batch_size=32, shuffle=True, num_workers=12)
+dataloader_val = DataLoader(cns_val, batch_size=32, shuffle=True, num_workers=12)
 
 
-# TODO - function on GPU; validation split; tensorboard
+# TODO - tensorboard; generalizing vs. memorizing algo; dynamically add layers while preserving previous weight values
 
 class M(nn.Module):
     def __init__(self):
@@ -44,12 +45,6 @@ class M(nn.Module):
     def BaseLayer(self, in_features, out_features):
         return nn.Linear(in_features, out_features, bias=True)
 
-# def training_step(self, batch, batch_idx):
-#
-#
-#
-#     tensorboard_logs = {'train_loss': loss}
-#     return {'loss': loss, 'log': tensorboard_logs}
 
 model = M()
 model = model.to(device)
@@ -62,26 +57,38 @@ optimizer = torch.optim.AdamW(
 
 loss_function = nn.MSELoss(reduction='sum')  # 'none' | 'mean' | 'sum'
 
-epochs = 10
+epochs = 1000
 iter_num_ctr = 0
 for t in range(epochs):  # epochs
-    for batch_idx, batch in enumerate(dataloader):
+    # put model in train mode
+    model = model.train()
+    loss_train = None
+    for batch_idx, batch in enumerate(dataloader_train):
+        x, y = batch
+        x = x.to(device)
+        y = y.to(device)
+
+        optimizer.zero_grad()  # clear param gradients
+
+        y_pred = model(x)
+
+        loss_train = loss_function(y_pred, y)
+        loss_train.backward()
+        optimizer.step()
+
+    # put model in evaluation mode (no updates to network)
+    model = model.eval()
+    loss_val = None
+    for batch_idx, batch in enumerate(dataloader_val):
         x, y = batch
         x = x.to(device)
         y = y.to(device)
 
         y_pred = model(x)
 
-        loss = loss_function(y_pred, y)
-        loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
+        loss_val = loss_function(y_pred, y)
 
-        if iter_num_ctr % 100 == 0:
-            print(f"Epoch {t}/{epochs} Iteration {batch_idx}")
-            print(f"MSE\t{loss.cpu().item()}")
-            print()
-        iter_num_ctr += 1
-
-
-
+    # End of epoch reporting
+    print(f"Epoch {t}/{epochs}")
+    print(f"Loss (MSE)\t\tTrain\t{loss_train.cpu().item()}\t\tVal\t{loss_val.cpu().item()}")
+    print()
