@@ -16,7 +16,7 @@ dataloader_train = DataLoader(cns_train, batch_size=32, shuffle=True, num_worker
 dataloader_val = DataLoader(cns_val, batch_size=32, shuffle=True, num_workers=12)
 
 
-# TODO - tensorboard; generalizing vs. memorizing algo; dynamically add layers while preserving previous weight values
+# TODO - tensorboard; CLI options for hyperparams; generalizing vs. memorizing algo; dynamically add layers while preserving previous weight values
 
 class M(nn.Module):
     def __init__(self):
@@ -95,6 +95,6 @@ for t in range(epochs):  # epochs
         losses_val.append(loss_val.cpu().item())
 
     # End of epoch reporting
-    print(f"Epoch {t}/{epochs}")
+    print(f"Epoch {t}/{epochs-1}")
     print(f"Loss (MSE)\t\tTrain\t{np.mean(losses_train)}\t\tVal\t{np.mean(losses_val)}")
     print()
