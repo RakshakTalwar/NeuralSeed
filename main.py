@@ -2,23 +2,22 @@ from typing import Optional, Union, Sequence, Dict, Tuple, List
 
 import numpy as np
 import torch
+from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from coffee_n_sugar import CoffeeNSugar
+import pytorch_lightning as pl
 
+from coffee_n_sugar import CoffeeNSugar
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-cns_train, cns_val = CoffeeNSugar(split='train', train_fraction=.7), CoffeeNSugar(split='val', train_fraction=.7)
-dataloader_train = DataLoader(cns_train, batch_size=32, shuffle=True, num_workers=12)
-dataloader_val = DataLoader(cns_val, batch_size=32, shuffle=True, num_workers=12)
 
+# TODO - CLI options for hyperparams; generalizing vs. memorizing algo; dynamically add layers while preserving previous weight values
+# OPTIONAL TODO, use https://neptune.ai/ to track experiments. Plugs into PyTorch Lightning easily
 
-# TODO - tensorboard; CLI options for hyperparams; generalizing vs. memorizing algo; dynamically add layers while preserving previous weight values
-
-class M(nn.Module):
+class M(pl.LightningModule):
     def __init__(self):
         super().__init__()
 
@@ -29,11 +28,24 @@ class M(nn.Module):
 
         self.num_hidden_layers = 1  # default, start small
 
+        self.loss_function = nn.MSELoss(reduction='sum')  # 'none' | 'mean' | 'sum'
+
         self.h = []  # will hold all hidden layers
         for _ in range(self.num_hidden_layers):
             self.h.append(
                 self.BaseLayer(self.num_neurons_per_layer, self.num_neurons_per_layer).to(device)
             )
+
+    def BaseLayer(self, in_features, out_features):
+        return nn.Linear(in_features, out_features, bias=True)
+    
+    def train_dataloader(self):
+        cns_train = CoffeeNSugar(split='train', train_fraction=.7)
+        return DataLoader(cns_train, batch_size=32, shuffle=True, num_workers=12)
+
+    def val_dataloader(self):
+        cns_val = CoffeeNSugar(split='val', train_fraction=.7)
+        return DataLoader(cns_val, batch_size=32, shuffle=True, num_workers=12)
 
     def forward(self, x):
         x = F.relu6(self.input_layer(x))
@@ -43,58 +55,44 @@ class M(nn.Module):
 
         return x
 
-    def BaseLayer(self, in_features, out_features):
-        return nn.Linear(in_features, out_features, bias=True)
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        x = x.to(device)
+        y = y.to(device)
+        y_pred = self(x)
+        loss = self.loss_function(y_pred, y)
+        tensorboard_logs = {'train_loss': loss}
+        return {'loss': loss,
+                'log': tensorboard_logs}
 
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        x = x.to(device)
+        y = y.to(device)
+        y_pred = self(x)
+        loss = self.loss_function(y_pred, y)
+        tensorboard_logs = {'val_loss': loss}
+        return {'val_loss': loss,
+                'log': tensorboard_logs}
 
-model = M()
-model = model.to(device)
+    def validation_epoch_end(self, outputs):
+        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
+        tensorboard_logs = {'val_loss': avg_loss}
+        return {'val_loss': avg_loss, 'log': tensorboard_logs}
 
-optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=1e-3,
-        betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-2, amsgrad=False
-)
-
-loss_function = nn.MSELoss(reduction='sum')  # 'none' | 'mean' | 'sum'
+    def configure_optimizers(self):
+        return torch.optim.AdamW(self.parameters(),
+                                 lr=1e-3,
+                                 betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-2, amsgrad=False)
 
 epochs = 1000
-iter_num_ctr = 0
-for t in range(epochs):  # epochs
-    # put model in train mode
-    model = model.train()
-    losses_train = []
-    for batch_idx, batch in enumerate(dataloader_train):
-        x, y = batch
-        x = x.to(device)
-        y = y.to(device)
 
-        optimizer.zero_grad()  # clear param gradients
-
-        y_pred = model(x)
-
-        loss_train = loss_function(y_pred, y)
-        loss_train.backward()
-        optimizer.step()
-
-        losses_train.append(loss_train.cpu().item())
-
-
-    # put model in evaluation mode (no updates to network)
-    model = model.eval()
-    losses_val = []
-    for batch_idx, batch in enumerate(dataloader_val):
-        x, y = batch
-        x = x.to(device)
-        y = y.to(device)
-
-        y_pred = model(x)
-
-        loss_val = loss_function(y_pred, y)
-
-        losses_val.append(loss_val.cpu().item())
-
-    # End of epoch reporting
-    print(f"Epoch {t}/{epochs-1}")
-    print(f"Loss (MSE)\t\tTrain\t{np.mean(losses_train)}\t\tVal\t{np.mean(losses_val)}")
-    print()
+model = M()
+trainer = pl.Trainer(
+    progress_bar_refresh_rate=20,
+    profiler=True,
+    max_epochs=epochs,
+    gpus=1,
+    precision=32
+)
+trainer.fit(model)
